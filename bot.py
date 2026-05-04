@@ -63,11 +63,11 @@ def log_event(user_id, event, text=""):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Google Sheets
-    try:
-        if sheet:
-            sheet.append_row([now, user_id, event, text])
-    except Exception as e:
-        print("Ошибка записи в Google Sheets:", e)
+   # try:
+  #      if sheet:
+   #         sheet.append_row([now, #user_id, event, text])
+   # except Exception as e:
+      #  print("Ошибка записи в Google #Sheets:", e)
 
     # CSV fallback
     try:

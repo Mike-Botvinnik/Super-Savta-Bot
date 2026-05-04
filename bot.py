@@ -1,6 +1,10 @@
 import csv
 import datetime
 import os
+import json
+
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -18,38 +22,73 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
 
 if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
     raise ValueError("Нет TELEGRAM_TOKEN или OPENAI_API_KEY")
 
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# ================= ЛОГИ =================
+
+# ---------------- GOOGLE SHEETS ----------------
+
+def init_google_sheets():
+    if not GOOGLE_CREDENTIALS:
+        print("Google Sheets отключен (нет переменной)")
+        return None
+
+    try:
+        creds_dict = json.loads(GOOGLE_CREDENTIALS)
+
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client_gs = gspread.authorize(creds)
+
+        sheet = client_gs.open("logs").sheet1
+        print("Google Sheets подключен")
+
+        return sheet
+
+    except Exception as e:
+        print("Ошибка подключения Google Sheets:", e)
+        return None
+
+
+sheet = init_google_sheets()
+
+
+# ---------------- LOGGING ----------------
 
 def log_event(user_id, event, text=""):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Печать в консоль (для Railway Logs)
-    print(f"{now} | {user_id} | {event} | {text}")
+    # CSV fallback
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    log_file = f"logs-{today}.csv"
 
-    # CSV лог (fallback)
-    try:
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
-        log_file = f"logs-{today}.csv"
-        file_exists = os.path.isfile(log_file)
+    file_exists = os.path.isfile(log_file)
 
-        with open(log_file, "a", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f)
+    with open(log_file, "a", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
 
-            if not file_exists:
-                writer.writerow(["timestamp", "user_id", "event", "text"])
+        if not file_exists:
+            writer.writerow(["timestamp", "user_id", "event", "text"])
 
-            writer.writerow([now, user_id, event, text])
+        writer.writerow([now, user_id, event, text])
 
-    except Exception as e:
-        print("Ошибка CSV:", e)
+    # Google Sheets
+    if sheet:
+        try:
+            sheet.append_row([now, user_id, event, text])
+        except Exception as e:
+            print("Ошибка Google Sheets:", e)
 
-# ================= КОМАНДЫ =================
+
+# ---------------- BOT ----------------
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -60,7 +99,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ БЕЗОПАСНО"
     )
 
-# ================= ОСНОВНАЯ ЛОГИКА =================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -74,16 +112,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = f"""
 Проверь сообщение и определи, насколько оно опасно.
 
-Используй только:
+Используй только один из трех вариантов:
 🚨 ОПАСНО
 ⚠️ ПОДОЗРИТЕЛЬНО
 ✅ БЕЗОПАСНО
 
-Формат ответа:
+После этого:
+1. Напиши короткое объяснение
+2. Дай совет
+
+Формат строго:
 
 🚨 ОПАСНО
 
-объяснение
+текст
 
 Совет: текст
 
@@ -101,57 +143,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(result)
 
-        if result.startswith("🚨 ОПАСНО"):
+        if result.startswith("🚨"):
             log_event(user_id, "RESULT_DANGEROUS")
-        elif result.startswith("⚠️ ПОДОЗРИТЕЛЬНО"):
+        elif result.startswith("⚠️"):
             log_event(user_id, "RESULT_SUSPICIOUS")
-        elif result.startswith("✅ БЕЗОПАСНО"):
+        elif result.startswith("✅"):
             log_event(user_id, "RESULT_SAFE")
 
         keyboard = InlineKeyboardMarkup(
             [[
-                InlineKeyboardButton("Да", callback_data="feedback_yes"),
-                InlineKeyboardButton("Нет", callback_data="feedback_no"),
+                InlineKeyboardButton("Да", callback_data="yes"),
+                InlineKeyboardButton("Нет", callback_data="no"),
             ]]
         )
 
         await update.message.reply_text("Было полезно?", reply_markup=keyboard)
 
     except Exception as e:
-        print("OpenAI ошибка:", e)
+        print(e)
         log_event(user_id, "OPENAI_ERROR", str(e))
-
         await update.message.reply_text("Ошибка. Попробуй позже.")
 
-# ================= FEEDBACK =================
 
 async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if not query:
-        return
-
     await query.answer()
+
     user_id = query.from_user.id
 
-    if query.data == "feedback_yes":
+    if query.data == "yes":
         log_event(user_id, "FEEDBACK_YES")
-        await query.edit_message_text("Спасибо!")
-
-    elif query.data == "feedback_no":
+        await query.edit_message_text("Спасибо")
+    else:
         log_event(user_id, "FEEDBACK_NO")
-        await query.edit_message_text("Принято, спасибо.")
+        await query.edit_message_text("Принято")
 
-# ================= ЗАПУСК =================
+
+# ---------------- MAIN ----------------
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(handle_feedback, pattern="^feedback_"))
+    app.add_handler(CallbackQueryHandler(handle_feedback))
 
-    print("Bot started...")
+    print("Бот запущен")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()

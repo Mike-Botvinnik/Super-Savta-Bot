@@ -2,6 +2,9 @@ import csv
 import datetime
 import os
 
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -20,27 +23,62 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
-    raise ValueError(
-        "Не найдены TELEGRAM_TOKEN или OPENAI_API_KEY. Добавь их в файл .env"
-    )
+    raise ValueError("Не найдены TELEGRAM_TOKEN или OPENAI_API_KEY")
 
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
+# ================= GOOGLE SHEETS =================
+
+sheet = None
+
+try:
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds = ServiceAccountCredentials.from_json_keyfile_name(
+        "credentials.json", scope
+    )
+
+    client_gs = gspread.authorize(creds)
+    sheet = client_gs.open("logs").sheet1
+
+    print("Google Sheets подключен")
+
+except Exception as e:
+    print("Google Sheets НЕ подключен:", e)
+
+# ================= ЛОГИ =================
 
 def log_event(user_id, event, text=""):
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
-    log_file = f"logs-{today}.csv"
-    file_exists = os.path.isfile(log_file)
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    with open(log_file, "a", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
+    # 1. Пишем в Google Sheets
+    try:
+        if sheet:
+            sheet.append_row([now, user_id, event, text])
+    except Exception as e:
+        print("Ошибка записи в Google Sheets:", e)
 
-        if not file_exists:
-            writer.writerow(["timestamp", "user_id", "event", "text"])
+    # 2. Пишем в CSV (резерв)
+    try:
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        log_file = f"logs-{today}.csv"
+        file_exists = os.path.isfile(log_file)
 
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        writer.writerow([now, user_id, event, text])
+        with open(log_file, "a", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
 
+            if not file_exists:
+                writer.writerow(["timestamp", "user_id", "event", "text"])
+
+            writer.writerow([now, user_id, event, text])
+
+    except Exception as e:
+        print("Ошибка записи в CSV:", e)
+
+# ================= КОМАНДЫ =================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -51,6 +89,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ БЕЗОПАСНО"
     )
 
+# ================= ОСНОВНАЯ ЛОГИКА =================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -71,37 +110,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 После этого:
 1. Напиши короткое объяснение простым языком
-2. Дай короткий и понятный совет, что делать дальше
+2. Дай короткий и понятный совет
 
-Если сообщение явно мошенническое, советуй не отвечать, не переходить по ссылкам, не отправлять деньги, не сообщать коды и при необходимости заблокировать отправителя.
-Если сообщение подозрительное, советуй быть осторожнее, ничего не нажимать и сначала все проверить.
-Если сообщение выглядит безопасным, советуй все равно сохранять внимательность, если отправитель незнакомый.
-
-Не используй другие смайлики, значки, списки, кавычки или лишний текст.
-
-Отвечай строго в формате:
+Формат:
 
 🚨 ОПАСНО
 
 объяснение
 
-Совет: короткий совет
-
-или
-
-⚠️ ПОДОЗРИТЕЛЬНО
-
-объяснение
-
-Совет: короткий совет
-
-или
-
-✅ БЕЗОПАСНО
-
-объяснение
-
-Совет: короткий совет
+Совет: текст
 
 Сообщение:
 {user_text}
@@ -114,6 +131,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         result = response.choices[0].message.content.strip()
+
         await update.message.reply_text(result)
 
         if result.startswith("🚨 ОПАСНО"):
@@ -135,10 +153,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(e)
         log_event(user_id, "OPENAI_ERROR", str(e))
+
         await update.message.reply_text(
-            "Сейчас не получилось проверить сообщение. Попробуй еще раз чуть позже."
+            "Ошибка проверки. Попробуй позже."
         )
 
+# ================= FEEDBACK =================
 
 async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -151,18 +171,21 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "feedback_yes":
         log_event(user_id, "FEEDBACK_YES")
         await query.edit_message_text("Спасибо за отзыв.")
+
     elif query.data == "feedback_no":
         log_event(user_id, "FEEDBACK_NO")
-        await query.edit_message_text("Спасибо за отзыв. Учтем это.")
+        await query.edit_message_text("Спасибо, учтем.")
 
+# ================= ЗАПУСК =================
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_feedback, pattern="^feedback_"))
-    app.run_polling()
 
+    app.run_polling()
 
 if __name__ == "__main__":
     main()

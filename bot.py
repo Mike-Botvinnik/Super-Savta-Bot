@@ -31,36 +31,36 @@ client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # ================= GOOGLE SHEETS =================
 
-sheet = None
+# sheet = None
 
-try:
-    if GOOGLE_CREDENTIALS:
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive"
-        ]
+# try:
+ #   if GOOGLE_CREDENTIALS:
+    #    scope = [
+            # #"https://spreadsheets.google.com/feeds",
+            #"https://www.googleapis.com/auth/drive"
+   #     ]
 
-        creds_dict = json.loads(GOOGLE_CREDENTIALS)
+   #     creds_dict = #json.loads(GOOGLE_CREDENTIALS)
 
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(
-            creds_dict, scope
-        )
+      #  creds = #ServiceAccountCredentials.from_json_keyf#ile_dict(
+         #   creds_dict, scope
+     #   )
 
-        client_gs = gspread.authorize(creds)
-        sheet = client_gs.open("logs").sheet1
+    #    client_gs = #gspread.authorize(creds)
+    #    sheet = #client_gs.open("logs").sheet1
 
-        print("Google Sheets подключен")
+    #    print("Google Sheets подключен")
 
-    else:
-        print("GOOGLE_CREDENTIALS не найден")
+  #  else:
+    #    print("GOOGLE_CREDENTIALS не #найден")
 
-except Exception as e:
-    print("Ошибка Google Sheets:", e)
+#except Exception as e:
+ #   print("Ошибка Google Sheets:", e)
 
-# ================= ЛОГИ =================
+# ================= ЛОГИ #=================
 
-def log_event(user_id, event, text=""):
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+#def log_event(user_id, event, text=""):
+ #   now = #datetime.datetime.now().strftime("%Y-%m-#%d %H:%M:%S")
 
     # Google Sheets
    # try:

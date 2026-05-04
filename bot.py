@@ -57,10 +57,10 @@ client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 #except Exception as e:
  #   print("Ошибка Google Sheets:", e)
 
-# ================= ЛОГИ #=================
+# ================= ЛОГИ =================
 
-#def log_event(user_id, event, text=""):
- #   now = #datetime.datetime.now().strftime("%Y-%m-#%d %H:%M:%S")
+def log_event(user_id, event, text=""):
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Google Sheets
    # try:

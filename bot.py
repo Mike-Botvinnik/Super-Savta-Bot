@@ -45,10 +45,15 @@ def init_google_sheets():
             "https://www.googleapis.com/auth/drive"
         ]
 
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(
+            creds_dict,
+            scope
+        )
+
         client_gs = gspread.authorize(creds)
 
         sheet = client_gs.open("logs").sheet1
+
         print("Google Sheets подключен")
 
         return sheet
@@ -88,15 +93,27 @@ def log_event(user_id, event, text=""):
             print("Ошибка Google Sheets:", e)
 
 
+# ---------------- QUICK CHECK ----------------
+
+def quick_check(text):
+    t = text.lower()
+
+    if "код" in t and "http" in t:
+        return "🚨 ОПАСНО", "Просят код и есть ссылка"
+
+    if "срочно" in t and "деньги" in t:
+        return "🚨 ОПАСНО", "Просят деньги и торопят"
+
+    return None
+
+
 # ---------------- BOT ----------------
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет. Я проверяю сообщения на мошенничество.\n\n"
-        "Отправь текст — я скажу:\n"
-        "🚨 ОПАСНО\n"
-        "⚠️ ПОДОЗРИТЕЛЬНО\n"
-        "✅ БЕЗОПАСНО"
+        "Привет. Я помогаю проверять сообщения на мошенничество.\n\n"
+        "Просто перешлите сюда сообщение из SMS или WhatsApp — "
+        "я помогу понять, безопасно ли это."
     )
 
 
@@ -107,16 +124,60 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_text = update.message.text.strip()
 
+    # Быстрая проверка
+    qc = quick_check(user_text)
+
+    if qc:
+        await update.message.reply_text(
+            f"{qc[0]}\n\n"
+            f"Почему:\n"
+            f"– {qc[1]}\n\n"
+            f"Что делать:\n"
+            f"– не отвечайте\n"
+            f"– ничего не отправляйте"
+        )
+
+        await update.message.reply_text(
+            "Если есть сомнения — лучше не отвечать и спросить ещё раз."
+        )
+
+        return
+
     log_event(user_id, "CHECK_MESSAGE", user_text)
 
     prompt = f"""
-Определи уровень опасности сообщения:
+Ты помощник, который защищает людей от мошенничества.
 
+Проверь сообщение и выбери только один вариант:
 🚨 ОПАСНО
 ⚠️ ПОДОЗРИТЕЛЬНО
 ✅ БЕЗОПАСНО
 
-Дай краткое объяснение и совет.
+Определи тип (если есть):
+– Банк / карта
+– Посылка / доставка
+– Родственник / знакомый
+– Выигрыш / приз
+– Работа / заработок
+– Другое
+
+Ответ строго в формате:
+
+🚨 ОПАСНО / ⚠️ ПОДОЗРИТЕЛЬНО / ✅ БЕЗОПАСНО
+
+Тип: коротко
+
+Почему:
+– причина 1
+– причина 2
+
+Что делать:
+– простой совет 1
+– простой совет 2
+
+Пиши очень просто, как для пожилого человека.
+Если есть сомнение — лучше указать, что это подозрительно.
+Не используй сложные слова.
 
 Сообщение:
 {user_text}
@@ -126,16 +187,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = await client.chat.completions.create(
             model="gpt-5-nano",
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=200,
+            temperature=0.3,
         )
 
         result = response.choices[0].message.content.strip()
 
         await update.message.reply_text(result)
 
+        await update.message.reply_text(
+            "Если есть сомнения — лучше не отвечать и спросить ещё раз."
+        )
+
         if result.startswith("🚨"):
             log_event(user_id, "RESULT_DANGEROUS")
+
+            await update.message.reply_text(
+                "Это распространённая схема — вы не один, кому такое прислали."
+            )
+
         elif result.startswith("⚠️"):
             log_event(user_id, "RESULT_SUSPICIOUS")
+
+            await update.message.reply_text(
+                "Это распространённая схема — вы не один, кому такое прислали."
+            )
+
         elif result.startswith("✅"):
             log_event(user_id, "RESULT_SAFE")
 
@@ -146,26 +223,38 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]]
         )
 
-        await update.message.reply_text("Было полезно?", reply_markup=keyboard)
+        await update.message.reply_text(
+            "Было полезно?",
+            reply_markup=keyboard
+        )
 
     except Exception as e:
         print(e)
+
         log_event(user_id, "OPENAI_ERROR", str(e))
-        await update.message.reply_text("Ошибка. Попробуй позже.")
+
+        await update.message.reply_text(
+            "Сейчас не получилось проверить сообщение. Попробуйте ещё раз позже."
+        )
 
 
 async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+
+    if not query:
+        return
+
     await query.answer()
 
     user_id = query.from_user.id
 
     if query.data == "yes":
         log_event(user_id, "FEEDBACK_YES")
-        await query.edit_message_text("Спасибо")
+        await query.edit_message_text("Спасибо за отзыв ❤️")
+
     else:
         log_event(user_id, "FEEDBACK_NO")
-        await query.edit_message_text("Принято")
+        await query.edit_message_text("Спасибо. Мы будем улучшать бота ❤️")
 
 
 # ---------------- MAIN ----------------
@@ -174,10 +263,18 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message
+        )
+    )
+
     app.add_handler(CallbackQueryHandler(handle_feedback))
 
     print("Бот запущен")
+
     app.run_polling()
 
 

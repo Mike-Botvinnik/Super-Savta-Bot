@@ -112,9 +112,9 @@ def quick_check(text):
 share_keyboard = InlineKeyboardMarkup(
     [[
         InlineKeyboardButton(
-            "📤 Отправить близким",
-            url="https://t.me/SuperSavtaBot"
-        )
+    "📤 Отправить близким",
+    url="https://t.me/share/url?url=https://t.me/SuperSavtaBot"
+)
     ]]
 )
 

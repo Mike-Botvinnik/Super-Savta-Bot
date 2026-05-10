@@ -235,8 +235,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log_event(user_id, "RESULT_SAFE")
 
         await update.message.reply_text(
-            "Если это помогло вам — отправьте близким, "
-            "чтобы они тоже были осторожны ❤️",
+            "Если вам это помогло — отправьте близким программу, "
+            "чтобы они тоже были в курсе и осторожны ❤️",
             reply_markup=share_keyboard
         )
 

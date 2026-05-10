@@ -108,22 +108,22 @@ def quick_check(text):
 
 
 # ---------------- KEYBOARDS ----------------
-keyboard = [
-    [
+
+share_keyboard = InlineKeyboardMarkup(
+    [[
         InlineKeyboardButton(
             "📤 Отправить близким",
-            url="https://t.me/YOUR_BOT_USERNAME"
+            url="https://t.me/SuperSavtaBot"
         )
-    ]
-]
-
-reply_markup = InlineKeyboardMarkup(keyboard)
-
-await update.message.reply_text(
-    text=result,
-    reply_markup=reply_markup
+    ]]
 )
 
+feedback_keyboard = InlineKeyboardMarkup(
+    [[
+        InlineKeyboardButton("Да", callback_data="yes"),
+        InlineKeyboardButton("Нет", callback_data="no"),
+    ]]
+)
 
 # ---------------- BOT ----------------
 

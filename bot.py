@@ -34,7 +34,7 @@ client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 def init_google_sheets():
     if not GOOGLE_CREDENTIALS:
-        print("Google Sheets отключен (нет переменной)")
+        print("Google Sheets отключен")
         return None
 
     try:
@@ -71,7 +71,7 @@ sheet = init_google_sheets()
 def log_event(user_id, event, text=""):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # CSV fallback
+    # CSV backup
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     log_file = f"logs-{today}.csv"
 
@@ -105,6 +105,25 @@ def quick_check(text):
         return "🚨 ОПАСНО", "Просят деньги и торопят"
 
     return None
+
+
+# ---------------- KEYBOARDS ----------------
+
+share_keyboard = InlineKeyboardMarkup(
+    [[
+        InlineKeyboardButton(
+            "📤 Отправить близким",
+            url="https://t.me/SuperSavtaBot"
+        )
+    ]]
+)
+
+feedback_keyboard = InlineKeyboardMarkup(
+    [[
+        InlineKeyboardButton("Да", callback_data="yes"),
+        InlineKeyboardButton("Нет", callback_data="no"),
+    ]]
+)
 
 
 # ---------------- BOT ----------------
@@ -216,16 +235,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif result.startswith("✅"):
             log_event(user_id, "RESULT_SAFE")
 
-        keyboard = InlineKeyboardMarkup(
-            [[
-                InlineKeyboardButton("Да", callback_data="yes"),
-                InlineKeyboardButton("Нет", callback_data="no"),
-            ]]
+        await update.message.reply_text(
+            "Если это помогло вам — отправьте близким, "
+            "чтобы они тоже были осторожны ❤️",
+            reply_markup=share_keyboard
         )
 
         await update.message.reply_text(
             "Было полезно?",
-            reply_markup=keyboard
+            reply_markup=feedback_keyboard
         )
 
     except Exception as e:
@@ -254,7 +272,9 @@ async def handle_feedback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
         log_event(user_id, "FEEDBACK_NO")
-        await query.edit_message_text("Спасибо. Мы будем улучшать бота ❤️")
+        await query.edit_message_text(
+            "Спасибо. Мы будем улучшать защиту ❤️"
+        )
 
 
 # ---------------- MAIN ----------------

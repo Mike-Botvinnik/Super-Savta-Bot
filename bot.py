@@ -229,7 +229,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     except Exception as e:
-        print(e)
+        print("OPENAI ERROR:", e)
 
         log_event(user_id, "OPENAI_ERROR", str(e))
 
